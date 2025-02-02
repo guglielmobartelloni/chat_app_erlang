@@ -20,8 +20,8 @@ resource "aws_security_group" "chat_server_sg" {
   }
 
   ingress {
-    from_port   = 5000
-    to_port     = 5000
+    from_port   = 5555
+    to_port     = 5555
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
     description = "Chat server port"
@@ -82,6 +82,6 @@ output "chat_server_public_ip" {
 }
 
 output "connection_command" {
-  value = "nc ${aws_instance.chat_server.public_ip} 5000"
+  value = "nc ${aws_instance.chat_server.public_ip} 5555"
   description = "Command to connect to the chat server"
 }
