@@ -45,3 +45,13 @@ the format is clear explains the commands, the client can use any of the command
 
 In the `terraform/` folder there is the `main.tf` file that let's you spin up an EC2 with Erlang installed.
 
+# Question 6
+
+This question adds two commands:
+
+```
+"PRIVATE <user> <msg> - Send private message to user",
+"USERS - Show all users",
+```
+
+the username will be a random username generated when the clients connect.

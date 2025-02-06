@@ -16,6 +16,9 @@ destroy_room(Socket, RoomName) ->
 list_rooms() ->
     gen_server:call(?MODULE, list_rooms).
 
+list_users() ->
+    gen_server:call(?MODULE, list_users).
+
 join_room(Socket, RoomName) ->
     gen_server:call(?MODULE, {join_room, Socket, RoomName}).
 
@@ -24,6 +27,9 @@ leave_room(Socket, RoomName) ->
 
 send_message(Socket, RoomName, Message) ->
     gen_server:cast(?MODULE, {send_message, Socket, RoomName, Message}).
+
+send_private_message(SenderSocket, ReceiverUsername, Message) ->
+    gen_server:call(?MODULE, {send_private_message, SenderSocket, ReceiverUsername, Message}).
 
 init([Port]) ->
     {ok, ListenSocket} = gen_tcp:listen(Port, [
@@ -36,8 +42,34 @@ init([Port]) ->
     {ok, #{
         clients => #{},         % Socket => Pid
         rooms => #{},          % RoomName => #{creator => Socket, members => [Socket]}
-        client_rooms => #{}    % Socket => [RoomName]
+        client_rooms => #{},    % Socket => [RoomName]
+        usernames => #{}        % Usernames => Socket
     }}.
+
+handle_call({send_private_message, SenderSocket, ReceiverUsername, Message}, _From, State) ->
+    Usernames = maps:get(usernames, State),
+    io:format("Users: ~p~n, user: ~p~n", [Usernames, ReceiverUsername]),
+    case maps:find(ReceiverUsername, Usernames) of
+        {ok, ReceiverSocket} ->
+            % Get sender's username
+            Clients = maps:get(clients, State),
+            #{SenderSocket := #{username := SenderUsername}} = Clients,
+
+            SenderBinary =
+                case SenderUsername of
+                    Atom when is_atom(Atom) -> list_to_binary(atom_to_list(Atom));
+                    List when is_list(List) -> list_to_binary(List);
+                    Bin when is_binary(Bin) -> Bin
+                end,
+            % Format private message
+            PrivateMessage = <<"[Private] ", SenderBinary/binary, ": ", Message/binary, "\n">>,
+            
+            % Send message to receiver
+            gen_tcp:send(ReceiverSocket, PrivateMessage),
+            {reply, {ok, sent}, State};
+        error ->
+            {reply, {error, user_not_found}, State}
+    end;
 
 handle_call({create_room, Socket, RoomName}, _From, State) ->
     case maps:is_key(RoomName, maps:get(rooms, State)) of
@@ -52,11 +84,9 @@ handle_call({create_room, Socket, RoomName}, _From, State) ->
 handle_call({destroy_room, Socket, RoomName}, _From, State) ->
     case maps:find(RoomName, maps:get(rooms, State)) of
         {ok, #{creator := Socket}} ->
-            % Notify all members that the room is being destroyed
             Room = maps:get(RoomName, maps:get(rooms, State)),
             notify_room_members(Room, <<"Room ", RoomName/binary, " has been destroyed\n">>),
             
-            % Remove room and update client_rooms for all members
             NewRooms = maps:remove(RoomName, maps:get(rooms, State)),
             NewClientRooms = remove_room_from_all_clients(RoomName, Room, maps:get(client_rooms, State)),
             {reply, {ok, destroyed}, State#{rooms => NewRooms, client_rooms => NewClientRooms}};
@@ -68,6 +98,10 @@ handle_call(list_rooms, _From, State) ->
     Rooms = maps:keys(maps:get(rooms, State)),
     {reply, {ok, Rooms}, State};
 
+handle_call(list_users, _From, State) ->
+    Users = maps:keys(maps:get(usernames, State)),
+    {reply, {ok, Users}, State};
+
 handle_call({join_room, Socket, RoomName}, _From, State) ->
     case maps:find(RoomName, maps:get(rooms, State)) of
         {ok, Room} ->
@@ -76,11 +110,25 @@ handle_call({join_room, Socket, RoomName}, _From, State) ->
                 true ->
                     {reply, {error, already_joined}, State};
                 false ->
+                    Username = maps:find(Socket , maps:get(clients, State)),
+
+                    NewClients = maps:update_with(Socket, 
+                        fun(ClientInfo) -> ClientInfo#{username => Username} end, 
+                        #{username => Username}, 
+                        maps:get(clients, State)),
+                    
+                    NewUsernames = maps:put(Username, Socket, maps:get(usernames, State)),
+                    
                     NewRoom = Room#{members => [Socket | Members]},
                     NewRooms = maps:put(RoomName, NewRoom, maps:get(rooms, State)),
                     NewClientRooms = update_client_rooms(Socket, RoomName, maps:get(client_rooms, State)),
-                    notify_room_members(NewRoom, <<"New user joined the room\n">>),
-                    {reply, {ok, joined}, State#{rooms => NewRooms, client_rooms => NewClientRooms}}
+                    notify_room_members(NewRoom, <<"New user ", Username/binary, " joined the room\n">>),
+                    {reply, {ok, joined}, State#{
+                        rooms => NewRooms, 
+                        client_rooms => NewClientRooms,
+                        clients => NewClients,
+                        usernames => NewUsernames
+                    }}
             end;
         error ->
             {reply, {error, room_not_found}, State}
@@ -125,27 +173,37 @@ handle_cast({send_message, Socket, RoomName, Message}, State) ->
             {noreply, State}
     end;
 
-handle_cast({register, Socket, Pid}, State) ->
-    Clients = maps:put(Socket, Pid, maps:get(clients, State)),
-    {noreply, State#{clients => Clients}};
+handle_cast({register, Socket, Username, Pid}, State) ->
+    Clients = maps:put(Socket, #{pid => Pid, username => Username}, maps:get(clients, State)),
+    Usernames = maps:put(Username, Socket, maps:get(usernames, State)),
+    {noreply, State#{clients => Clients, usernames => Usernames}};
 
 handle_cast({unregister, Socket}, State) ->
-    % Remove client from all rooms they're in
-    case maps:find(Socket, maps:get(client_rooms, State)) of
-        {ok, ClientRooms} ->
-            NewState = lists:foldl(
-                fun(RoomName, AccState) ->
-                    {reply, _, NewAccState} = handle_call({leave_room, Socket, RoomName}, undefined, AccState),
-                    NewAccState
-                end,
-                State,
-                ClientRooms
-            ),
+    case maps:find(Socket, maps:get(clients, State)) of
+        {ok, #{username := Username}} ->
+            % Remove from usernames
+            NewUsernames = maps:remove(Username, maps:get(usernames, State)),
+            
+            % Remove from rooms
+            NewState = case maps:find(Socket, maps:get(client_rooms, State)) of
+                {ok, ClientRooms} ->
+                    lists:foldl(
+                        fun(RoomName, AccState) ->
+                            {reply, _, NewAccState} = handle_call({leave_room, Socket, RoomName}, undefined, AccState),
+                            NewAccState
+                        end,
+                        State#{usernames => NewUsernames},
+                        ClientRooms
+                    );
+                error ->
+                    State#{usernames => NewUsernames}
+            end,
+            
+            % Remove from clients
             Clients = maps:remove(Socket, maps:get(clients, NewState)),
             {noreply, NewState#{clients => Clients}};
         error ->
-            Clients = maps:remove(Socket, maps:get(clients, State)),
-            {noreply, State#{clients => Clients}}
+            {noreply, State}
     end.
 
 terminate(_Reason, _State) ->
@@ -158,7 +216,7 @@ code_change(_OldVsn, State, _Extra) ->
 accept_connections(ListenSocket) ->
     {ok, Socket} = gen_tcp:accept(ListenSocket),
     spawn(fun() -> accept_connections(ListenSocket) end),
-    gen_server:cast(?MODULE, {register, Socket, self()}),
+    gen_server:cast(?MODULE, {register, Socket, random_username:generate(), self()}),
     client_loop(Socket).
 
 client_loop(Socket) ->
@@ -183,10 +241,15 @@ parse_command(Data) ->
             {destroy_room, list_to_binary(RoomName)};
         ["LIST"] ->
             list_rooms;
+        ["PRIVATE", Username | MessageParts] ->
+            Message = string:join(MessageParts, " "),
+            {send_private_message, list_to_binary(Username), list_to_binary(Message)};
         ["JOIN", RoomName] ->
             {join_room, list_to_binary(RoomName)};
         ["LEAVE", RoomName] ->
             {leave_room, list_to_binary(RoomName)};
+        ["USERS"] ->
+            list_users;
         ["MSG", RoomName | MessageParts] ->
             Message = string:join(MessageParts, " "),
             {send_message, list_to_binary(RoomName), list_to_binary(Message)};
@@ -221,6 +284,13 @@ execute_command(Socket, Command) ->
                     gen_tcp:send(Socket, RoomList)
             end;
 
+        list_users ->
+            case list_users() of
+                {ok, Users} ->
+                    UsersList = format_users_list(Users),
+                    gen_tcp:send(Socket, UsersList)
+            end;
+
         {join_room, RoomName} ->
             case join_room(Socket, RoomName) of
                 {ok, joined} ->
@@ -244,6 +314,14 @@ execute_command(Socket, Command) ->
         {send_message, RoomName, Message} ->
             send_message(Socket, RoomName, Message);
 
+      {send_private_message, ReceiverUsername, Message} ->
+            case send_private_message(Socket, ReceiverUsername, Message) of
+                {ok, sent} ->
+                    gen_tcp:send(Socket, <<"Private message sent successfully\n">>);
+                {error, user_not_found} ->
+                    gen_tcp:send(Socket, <<"User not found\n">>)
+            end;
+
         help ->
             HelpText = get_help_text(),
             gen_tcp:send(Socket, HelpText);
@@ -264,6 +342,17 @@ format_room_list(Rooms) ->
     ),
     list_to_binary([<<"Available rooms:\n">> | RoomsList]).
 
+format_users_list([]) ->
+    <<"No rooms available\n">>;
+format_users_list(Users) ->
+    UsersList = lists:map(
+        fun(User) ->
+            [<<"- ">>, User, <<"\n">>]
+        end,
+        Users
+    ),
+    list_to_binary([<<"Available rooms:\n">> | UsersList]).
+
 get_help_text() ->
     Commands = [
         "Available commands:",
@@ -271,6 +360,8 @@ get_help_text() ->
         "DESTROY <room_name> - Destroy a room (creator only)",
         "LIST - Show all available rooms",
         "JOIN <room_name> - Join an existing room",
+        "PRIVATE <user> <msg> - Send private message to user",
+        "USERS - Show all users",
         "LEAVE <room_name> - Leave a room",
         "MSG <room_name> <message> - Send a message to a room",
         "HELP - Show this help message",
