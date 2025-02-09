@@ -55,3 +55,14 @@ This question adds two commands:
 ```
 
 the username will be a random username generated when the clients connect.
+
+# Question 7
+
+This question adds two new commands:
+
+```
+"CREATE PRIVATE <room_name> - Create a new private chat room",
+"INVITE <room_name> <username> - Invite a user to a private room",
+```
+
+the commands are used to create a private room that only the creator can see at first, the `INVITE` command is used to invite a user to the private room. Once a user is invited he can join to the private room and chat like the public rooms.
