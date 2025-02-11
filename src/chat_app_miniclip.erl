@@ -3,8 +3,6 @@
 -behaviour(gen_server).
 
 -export([start/1, init/1, handle_call/3, handle_cast/2, terminate/2, code_change/3]).
--export([create_room/3, destroy_room/2, list_rooms/1, join_room/2, leave_room/2,
-         send_message/3, invite_to_room/3]).
 
 start(Port) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Port], []).
@@ -42,9 +40,9 @@ init([Port]) ->
     spawn(fun() -> accept_connections(ListenSocket) end),
     {ok,
      #{clients => #{},         % Socket => Pid
-       rooms => #{},          % RoomName => #{creator => Socket, members => [Socket]}
+       rooms => #{},          % RoomName => #{creator => Socket, members => [Socket], invited => [], isPrivate => true}
        client_rooms => #{},    % Socket => [RoomName]
-       usernames => #{}}}.        % Usernames => Socket
+       usernames => #{}}}.        % Usernames => [Socket]
 
 handle_call({send_private_message, SenderSocket, ReceiverUsername, Message},
             _From,
@@ -214,10 +212,8 @@ handle_cast({register, Socket, Username, Pid}, State) ->
 handle_cast({unregister, Socket}, State) ->
     case maps:find(Socket, maps:get(clients, State)) of
         {ok, #{username := Username}} ->
-            % Remove from usernames
             NewUsernames = maps:remove(Username, maps:get(usernames, State)),
 
-            % Remove from rooms
             NewState =
                 case maps:find(Socket, maps:get(client_rooms, State)) of
                     {ok, ClientRooms} ->
@@ -234,7 +230,6 @@ handle_cast({unregister, Socket}, State) ->
                         State#{usernames => NewUsernames}
                 end,
 
-            % Remove from clients
             Clients = maps:remove(Socket, maps:get(clients, NewState)),
             {noreply, NewState#{clients => Clients}};
         error ->
