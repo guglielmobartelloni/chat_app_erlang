@@ -1,16 +1,16 @@
 %%%-------------------------------------------------------------------
-%% @doc chat_app_miniclip public API
+%% @doc chat_app public API
 %% @end
 %%%-------------------------------------------------------------------
 
--module(chat_app_miniclip_app).
+-module(chat_app_app).
 
 -behaviour(application).
 
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    chat_app_miniclip_sup:start_link().
+    chat_app_sup:start_link().
 
 stop(_State) ->
     ok.

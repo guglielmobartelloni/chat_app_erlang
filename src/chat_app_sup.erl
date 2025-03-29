@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc chat_app_miniclip top level supervisor.
+%% @doc chat_app top level supervisor.
 %% @end
 %%%-------------------------------------------------------------------
 
--module(chat_app_miniclip_sup).
+-module(chat_app_sup).
 
 -behaviour(supervisor).
 
@@ -33,11 +33,11 @@ init([]) ->
     },
     ChildSpecs = [#{
         id => chat_app_server,
-        start => {chat_app_miniclip, start, [5555]},
+        start => {chat_app, start, [5555]},
         restart => permanent,
         shutdown => 5555,
         type => worker,
-        modules => [chat_app_miniclip]
+        modules => [chat_app]
     }],
     {ok, {SupFlags, ChildSpecs}}.
 

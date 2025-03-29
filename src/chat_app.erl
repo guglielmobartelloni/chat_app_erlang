@@ -1,4 +1,4 @@
--module(chat_app_miniclip).
+-module(chat_app).
 
 -behaviour(gen_server).
 

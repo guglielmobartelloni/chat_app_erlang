@@ -1,8 +1,8 @@
-{application, chat_app_miniclip, [
+{application, chat_app, [
     {description, "An OTP application"},
     {vsn, "0.1.0"},
     {registered, []},
-    {mod, {chat_app_miniclip_app, []}},
+    {mod, {chat_app_app, []}},
     {applications, [
         kernel,
         stdlib
