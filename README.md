@@ -1,33 +1,18 @@
-chat_app_miniclip
+Simple Chat App written in Erlang
 =====
 
-# Question 2
+A simple chat application written in `Erlang` that allows users to create, join, and manage chat rooms. Users can also send private messages and create private rooms with controlled access.
 
-To test the server functionality open a shell:
+## Features
 
-```bash
-rebar3 shell
-```
+- Create and manage public and private chat rooms
+- Send messages in rooms or privately to other users
+- List available rooms and users
+- Invite users to private chat rooms
 
-and start the server with the command:
+The server automatically starts when the application is started, when you open a rebar3 shell you don't have to start it anymore. 
 
-```erl
-chat_app_miniclip:start(5555)
-```
-
-`5555` is the port number where the server will listen. 
-Open another shell and connect the client to the server with the command:
-
-```erl
-chat_client:start("localhost", 5555)
-```
-now you can send messages from the client by entering the text and hitting enter. The server will display the received messages
-
-# Question 3
-
-Now the server automatically starts when the application is started, when you open a rebar3 shell you don't have to start it anymore. 
-
-When the client connects it can send and HELP command to get the list of available commands:
+When the client connects (with a tcp client like `telnet` or `netcat`) it can send and HELP command to get the list of available commands:
 
 ```
 CREATE <room_name> - Create a new chat room
@@ -37,32 +22,12 @@ JOIN <room_name> - Join an existing room
 LEAVE <room_name> - Leave a room
 MSG <room_name> <message> - Send a message to a room
 HELP - Show this help message
+PRIVATE <user> <msg> - Send private message to user,
+USERS - Show all users,
+CREATE PRIVATE <room_name> - Create a new private chat room,
+INVITE <room_name> <username> - Invite a user to a private room,
 ```
 
-the format is clear explains the commands, the client can use any of the commands as specified to manage rooms and send messages.
+## Terraform
 
-# Question 4
-
-In the `terraform/` folder there is the `main.tf` file that let's you spin up an EC2 with Erlang installed.
-
-# Question 6
-
-This question adds two commands:
-
-```
-"PRIVATE <user> <msg> - Send private message to user",
-"USERS - Show all users",
-```
-
-the username will be a random username generated when the clients connect.
-
-# Question 7
-
-This question adds two new commands:
-
-```
-"CREATE PRIVATE <room_name> - Create a new private chat room",
-"INVITE <room_name> <username> - Invite a user to a private room",
-```
-
-the commands are used to create a private room that only the creator can see at first, the `INVITE` command is used to invite a user to the private room. Once a user is invited he can join to the private room and chat like the public rooms.
+the project also contains a terraform file to deploy the application on AWS with load-balancing included.
